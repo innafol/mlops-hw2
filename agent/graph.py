@@ -19,15 +19,18 @@ from __future__ import annotations
 import os
 import re
 import json
+import sqlite3
+
 from dataclasses import dataclass, field
 from typing import Any
+from functools import lru_cache
 
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 
 from agent import prompts
 from agent.execution import ExecutionResult, execute_sql
-from agent.schema import render_schema
+from agent.schema import render_schema, db_path, _q
 
 # Total generate + revise calls before the loop is forced to stop.
 # 3-5 is a reasonable range; tune it as part of Phase 3.
@@ -66,10 +69,36 @@ def llm() -> ChatOpenAI:
 
 
 # ---- Nodes ------------------------------------------------------------
+@lru_cache(maxsize=32)
+def _sample_values(db_id: str, max_tables: int = 50, max_cols: int = 10, max_vals: int = 5) -> str:
+    """Return sample distinct values for low-cardinality text columns, to disambiguate enum codes."""
+    path = db_path(db_id)
+    lines = []
+    with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as conn:
+        tables = [r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        )]
+        for t in tables:
+            cols = [r[1] for r in conn.execute(f"PRAGMA table_info({_q(t)})") if r[2].upper() in ("TEXT", "VARCHAR", "CHAR")]
+            for c in cols[:max_cols]:
+                try:
+                    vals = conn.execute(
+                        f"SELECT DISTINCT {_q(c)} FROM {_q(t)} WHERE {_q(c)} IS NOT NULL LIMIT {max_vals + 1}"
+                    ).fetchall()
+                except Exception:
+                    continue
+                if 0 < len(vals) <= max_vals:
+                    sample = ", ".join(repr(v[0]) for v in vals)
+                    lines.append(f"{t}.{c}: {sample}")
+    return "\n".join(lines)
+
 
 def _attach_schema(state: AgentState) -> dict:
-    """Provided. Render the DB schema once at the start of the run."""
-    return {"schema": render_schema(state.db_id)}
+    schema = render_schema(state.db_id)
+    samples = _sample_values(state.db_id)
+    if samples:
+        schema += f"\n\n-- Sample values for low-cardinality text columns:\n{samples}"
+    return {"schema": schema}
 
 
 def _extract_sql(text: str) -> str:

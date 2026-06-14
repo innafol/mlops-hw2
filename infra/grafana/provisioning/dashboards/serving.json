@@ -2,89 +2,27 @@
   "title": "vLLM serving",
   "uid": "vllm-serving",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "refresh": "5s",
   "tags": ["vllm", "starter"],
-  "time": {
-    "from": "now-30m",
-    "to": "now"
-  },
+  "time": { "from": "now-30m", "to": "now" },
   "timepicker": {},
   "templating": { "list": [] },
   "annotations": { "list": [] },
   "panels": [
     {
-      "id": 1,
-      "type": "timeseries",
-      "title": "Requests running",
-      "description": "Active requests being served by vLLM right now.",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "vllm:num_requests_running",
-          "legendFormat": "running"
-        },
-        {
-          "refId": "B",
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "vllm:num_requests_waiting",
-          "legendFormat": "waiting"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": { "drawStyle": "line", "lineInterpolation": "linear", "fillOpacity": 10 }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" },
-        "tooltip": { "mode": "multi", "sort": "desc" }
-      }
-    },
-    {
-      "id": 2,
-      "type": "timeseries",
-      "title": "Generated tokens / sec",
-      "description": "Rate of output tokens produced by vLLM, smoothed over 1m.",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "rate(vllm:generation_tokens_total[1m])",
-          "legendFormat": "gen tokens/s"
-        },
-        {
-          "refId": "B",
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "rate(vllm:prompt_tokens_total[1m])",
-          "legendFormat": "prompt tokens/s"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ops",
-          "custom": { "drawStyle": "line", "lineInterpolation": "linear", "fillOpacity": 10 }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" },
-        "tooltip": { "mode": "multi", "sort": "desc" }
-      }
+      "id": 10,
+      "type": "row",
+      "title": "Latency",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false
     },
     {
       "id": 3,
       "type": "timeseries",
       "title": "Request latency (P50 / P95 / P99)",
-      "description": "End-to-end request latency percentiles. P95 is the primary SLO signal — if it spikes, the system is slow for a meaningful fraction of users.",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "description": "End-to-end time per completed request. P95 is the primary SLO signal — target is <5s. If P95 spikes but P50 is flat, only the tail of requests is slow. If both spike, the whole system is overloaded.",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
@@ -97,7 +35,7 @@
           "refId": "B",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "expr": "histogram_quantile(0.95, sum(rate(vllm:e2e_request_latency_seconds_bucket[1m])) by (le))",
-          "legendFormat": "P95"
+          "legendFormat": "P95 (SLO)"
         },
         {
           "refId": "C",
@@ -109,12 +47,27 @@
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "custom": { "drawStyle": "line", "lineInterpolation": "linear", "fillOpacity": 5 }
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 5 }
+            ]
+          },
+          "custom": { 
+            "drawStyle": "line", 
+            "lineInterpolation": "linear", 
+            "fillOpacity": 5,
+            "thresholdsStyle": { "mode": "dashed" } 
+          }
         },
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "P95" },
-            "properties": [{ "id": "custom.lineWidth", "value": 2 }]
+            "matcher": { "id": "byName", "options": "P95 (SLO)" },
+            "properties": [
+              { "id": "custom.lineWidth", "value": 2 },
+              { "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }
+            ]
           }
         ]
       },
@@ -124,11 +77,44 @@
       }
     },
     {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Queue time (P50 / P95)",
+      "description": "Time a request spends waiting in the scheduler queue before inference starts. High queue time means the system is overloaded and can't start new requests fast enough — increase --max-num-seqs or reduce per-request latency. If E2E latency is high but queue time is low, the bottleneck is in inference itself (prefill or decode).",
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.50, sum(rate(vllm:request_queue_time_seconds_bucket[1m])) by (le))",
+          "legendFormat": "Queue P50"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:request_queue_time_seconds_bucket[1m])) by (le))",
+          "legendFormat": "Queue P95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineInterpolation": "linear", "fillOpacity": 5 }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
       "id": 4,
       "type": "timeseries",
-      "title": "Time to first token (P50 / P95)",
-      "description": "How long until the first token is generated. Dominated by prefill cost — high TTFT under load means the prefill queue is backed up.",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "title": "Time to first token — TTFT (P50 / P95)",
+      "description": "Time from request arrival until the first output token. Driven by prefill cost. High TTFT means the prefill queue is backed up — long prompts or too many concurrent requests. If TTFT is high but ITL is normal, prefill is your bottleneck.",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
@@ -157,99 +143,23 @@
       }
     },
     {
-      "id": 5,
-      "type": "timeseries",
-      "title": "Requests / sec",
-      "description": "Throughput in completed requests per second. Compare against the 10 RPS SLO target.",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "rate(vllm:request_success_total[1m])",
-          "legendFormat": "success/s"
-        },
-        {
-          "refId": "B",
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "rate(vllm:request_success_total[1m]) + rate(vllm:request_failure_total[1m])",
-          "legendFormat": "total/s"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps",
-          "custom": { "drawStyle": "line", "lineInterpolation": "linear", "fillOpacity": 10 }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" },
-        "tooltip": { "mode": "multi", "sort": "desc" }
-      }
-    },
-    {
-      "id": 6,
-      "type": "timeseries",
-      "title": "KV cache utilization",
-      "description": "Fraction of KV cache blocks in use. Above ~80% vLLM starts evicting blocks (preemption), which adds latency. If this is pinned at 100% under load, you need larger --max-model-len or more concurrency headroom.",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "vllm:gpu_cache_usage_perc",
-          "legendFormat": "GPU cache used %"
-        },
-        {
-          "refId": "B",
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "vllm:cpu_cache_usage_perc",
-          "legendFormat": "CPU cache used %"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit",
-          "min": 0,
-          "max": 1,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 0.7 },
-              { "color": "red", "value": 0.9 }
-            ]
-          },
-          "custom": { "drawStyle": "line", "lineInterpolation": "linear", "fillOpacity": 20 }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" },
-        "tooltip": { "mode": "multi", "sort": "desc" }
-      }
-    },
-    {
       "id": 7,
       "type": "timeseries",
-      "title": "Inter-token latency P95 (decode speed)",
-      "description": "Time between consecutive tokens during decoding. Spikes here mean the decode step is slow — often caused by KV cache pressure or insufficient GPU memory bandwidth.",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "title": "Inter-token latency — ITL (P50 / P95)",
+      "description": "Time between consecutive output tokens during decoding. Spikes here mean the GPU is slow at decode — often caused by KV cache pressure or too many concurrent sequences. If ITL is high but TTFT is normal, decode is your bottleneck.",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.50, sum(rate(vllm:time_per_output_token_seconds_bucket[1m])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(vllm:inter_token_latency_seconds_bucket[1m])) by (le))",
           "legendFormat": "ITL P50"
         },
         {
           "refId": "B",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.95, sum(rate(vllm:time_per_output_token_seconds_bucket[1m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:inter_token_latency_seconds_bucket[1m])) by (le))",
           "legendFormat": "ITL P95"
         }
       ],
@@ -266,17 +176,185 @@
       }
     },
     {
-      "id": 8,
+      "id": 11,
+      "type": "row",
+      "title": "Throughput",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "collapsed": false
+    },
+    {
+      "id": 5,
       "type": "timeseries",
-      "title": "Preemptions",
-      "description": "Number of requests preempted due to KV cache eviction. Any non-zero value means the cache is full and vLLM is recomputing — a direct latency hit. If this is non-zero, reduce --max-num-seqs or increase --gpu-memory-utilization.",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "title": "Requests / sec",
+      "description": "Rate of completed requests. SLO target is 10+ RPS sustained over 5 minutes. Tracks success/s only since request_failure_total is not exposed by this vLLM version.",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 10 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "rate(vllm:num_preemptions_total[1m])",
+          "expr": "sum(rate(vllm:request_success_total[1m]))",
+          "legendFormat": "success/s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 10 }
+            ]
+          },
+          "custom": { 
+            "drawStyle": "line", 
+            "lineInterpolation": "linear", 
+            "fillOpacity": 10,
+            "thresholdsStyle": { "mode": "dashed" }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Requests running / waiting",
+      "description": "Active (running) vs queued (waiting) requests. A growing waiting count means the system can't keep up — increase --max-num-seqs or reduce per-request latency.",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(vllm:num_requests_running)",
+          "legendFormat": "running"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(vllm:num_requests_waiting)",
+          "legendFormat": "waiting"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "lineInterpolation": "linear", "fillOpacity": 10 }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "waiting" },
+            "properties": [
+              { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Token throughput (gen / prompt tokens per sec)",
+      "description": "Generation tokens/s = decode throughput — how fast the model is producing output. Prompt tokens/s = prefill throughput — how fast it is ingesting input. Low gen tokens/s under load means decode is saturated.",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(vllm:generation_tokens_total[1m]))",
+          "legendFormat": "gen tokens/s"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(vllm:prompt_tokens_total[1m]))",
+          "legendFormat": "prompt tokens/s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": { "drawStyle": "line", "lineInterpolation": "linear", "fillOpacity": 10 }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 12,
+      "type": "row",
+      "title": "KV Cache",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 },
+      "collapsed": false
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "KV cache utilization",
+      "description": "Fraction of KV cache blocks currently in use. Above ~80% vLLM starts evicting sequences — both swapping to CPU and recomputing add latency. If pinned at 100% under load: reduce --max-num-seqs or --max-model-len, or increase --gpu-memory-utilization.",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 19 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(vllm:kv_cache_usage_perc)",
+          "legendFormat": "KV cache %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.7 },
+              { "color": "red", "value": 0.9 }
+            ]
+          },
+          "custom": { 
+            "drawStyle": "line", 
+            "lineInterpolation": "linear", 
+            "fillOpacity": 20,
+            "thresholdsStyle": { "mode": "dashed" }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Preemptions / sec",
+      "description": "Rate of KV cache evictions. Any sustained non-zero value means vLLM is pausing requests mid-generation to free cache — direct latency hit. Fix: lower --max-num-seqs or --max-model-len.",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 19 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(vllm:num_preemptions_total[1m]))",
           "legendFormat": "preemptions/s"
         }
       ],
@@ -291,6 +369,43 @@
               { "color": "red", "value": 0.01 }
             ]
           }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Prefix cache hit rate",
+      "description": "Fraction of prompt tokens served from the prefix cache (previously computed KV values reused). High hit rate = less prefill work = lower TTFT. For BIRD workload, schema context is repeated across questions so prefix caching can be significant. Low hit rate under repeated load may indicate --max-model-len is too small to cache the schema prefix.",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 19 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(rate(vllm:prefix_cache_hits_total[1m])) / sum(rate(vllm:prefix_cache_queries_total[1m]))",
+          "legendFormat": "hit rate"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.3 },
+              { "color": "green", "value": 0.6 }
+            ]
+          },
+          "custom": { "drawStyle": "line", "lineInterpolation": "linear", "fillOpacity": 10 }
         },
         "overrides": []
       },

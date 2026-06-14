@@ -32,8 +32,13 @@ async def fire_one(
     url: str,
     question: dict,
     results: list[dict],
+    tags: dict[str, str],
 ) -> None:
-    payload = {"question": question["question"], "db": question["db_id"]}
+    payload = {
+        "question": question["question"], 
+        "db": question["db_id"],
+        "tags": tags
+        }
     t0 = time.monotonic()
     status = "ok"
     err: str | None = None
@@ -67,6 +72,7 @@ async def drive(args: argparse.Namespace) -> None:
     interval = 1.0 / args.rps
 
     connector = aiohttp.TCPConnector(limit=0)
+    tags = {"source": "load_test", "rps_target": str(args.rps), "run_id": args.run_id}
     async with aiohttp.ClientSession(connector=connector) as session:
         start = time.monotonic()
         deadline = start + args.duration
@@ -74,7 +80,7 @@ async def drive(args: argparse.Namespace) -> None:
         next_fire = start
         while time.monotonic() < deadline:
             q = rnd.choice(questions)
-            tasks.append(asyncio.create_task(fire_one(session, args.agent_url, q, results)))
+            tasks.append(asyncio.create_task(fire_one(session, args.agent_url, q, results, tags)))
             next_fire += interval
             sleep_for = next_fire - time.monotonic()
             if sleep_for > 0:
@@ -120,6 +126,7 @@ def main() -> None:
     p.add_argument("--duration", type=int, default=300, help="seconds to drive load")
     p.add_argument("--agent-url", default=AGENT_URL_DEFAULT)
     p.add_argument("--out", type=Path, default=DEFAULT_OUT)
+    p.add_argument("--run-id", default="baseline", help="label for this load test run")
     args = p.parse_args()
     asyncio.run(drive(args))
 

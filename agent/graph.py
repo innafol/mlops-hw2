@@ -70,7 +70,7 @@ def llm() -> ChatOpenAI:
 
 # ---- Nodes ------------------------------------------------------------
 @lru_cache(maxsize=32)
-def _sample_values(db_id: str, max_tables: int = 50, max_cols: int = 10, max_vals: int = 5) -> str:
+def _sample_values(db_id: str, max_tables: int = 50, max_cols: int = 10, max_vals: int = 10) -> str:
     """Return sample distinct values for low-cardinality text columns, to disambiguate enum codes."""
     path = db_path(db_id)
     lines = []

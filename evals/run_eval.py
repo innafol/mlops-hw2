@@ -114,10 +114,13 @@ def eval_one(question: dict, agent_url: str) -> dict:
         "db_id": db_id,
         "gold_sql": gold_sql,
         "agent_sql": agent_sql,
+        "gold_rows": gold_rows,
+        "pred_rows": pred_rows,
         "iterations": iterations,
         "correct_at": correct_at,
         "final_correct": final_correct,
         "error": None,
+        "history": agent_result.get("history", [])
     }
 
 
